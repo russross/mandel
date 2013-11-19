@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"image"
 	"image/color"
 	"image/png"
@@ -67,6 +68,7 @@ func main() {
 
 	// feed the rows to the workers
 	for row := 0; row < sizeY; row++ {
+		fmt.Printf("\r%.2f%%", float64(100*row)/float64(sizeY))
 		ch <- row
 	}
 	close(ch)
@@ -75,6 +77,7 @@ func main() {
 	for i := 0; i < fanout; i++ {
 		<-done
 	}
+	fmt.Printf("\rfinished\n")
 
 	// save the image
 	fp, err := os.Create(filename)
