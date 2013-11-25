@@ -57,7 +57,7 @@ func main() {
 	// spin up row workers
 	ch := make(chan int)
 	done := make(chan bool)
-	pixelch := make(chan pixel)
+	pixelch := make(chan pixel, sizeX)
 	for i := 0; i < fanout; i++ {
 		go func() {
 			for row := range ch {
