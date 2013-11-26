@@ -42,7 +42,7 @@ func main() {
 
 	flag.IntVar(&sizeX, "px", 1024, "Horizontal size of the image in pixels")
 	flag.IntVar(&sizeY, "py", 768, "Vertical size of the image in pixels")
-	flag.IntVar(&iterations, "n", 1000, "Maximum iterations per point")
+	flag.IntVar(&iterations, "i", 1000, "Maximum iterations per point")
 	flag.Float64Var(&centerX, "x", -0.75, "Center point of the image, real part")
 	flag.Float64Var(&centerY, "y", 0.0, "Center point of the image, imaginary part")
 	flag.Float64Var(&magnification, "mag", 0.4, "Magnification level")
