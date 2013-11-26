@@ -120,20 +120,20 @@ func calcPixel(col, row, sizeX, sizeY int, centerX, centerY, magnification float
 		return color.NRGBA{uint8(r), uint8(g), uint8(b), 255}
 	}
 
-	x1 := centerX + (float64(col-sizeX/2)-0.5)/(magnification*float64(minsize-1))
-	y1 := centerY - (float64(row-sizeY/2)+0.5)/(magnification*float64(minsize-1))
+	x1 := centerX + (float64(col-sizeX/2)-0.25)/(magnification*float64(minsize-1))
+	y1 := centerY - (float64(row-sizeY/2)+0.25)/(magnification*float64(minsize-1))
 	r1, g1, b1 := getColor(mandel(x1, y1))
 
-	x2 := centerX + (float64(col-sizeX/2)+0.5)/(magnification*float64(minsize-1))
-	y2 := centerY - (float64(row-sizeY/2)+0.5)/(magnification*float64(minsize-1))
+	x2 := centerX + (float64(col-sizeX/2)+0.25)/(magnification*float64(minsize-1))
+	y2 := centerY - (float64(row-sizeY/2)+0.25)/(magnification*float64(minsize-1))
 	r2, g2, b2 := getColor(mandel(x2, y2))
 
-	x3 := centerX + (float64(col-sizeX/2)-0.5)/(magnification*float64(minsize-1))
-	y3 := centerY - (float64(row-sizeY/2)-0.5)/(magnification*float64(minsize-1))
+	x3 := centerX + (float64(col-sizeX/2)-0.25)/(magnification*float64(minsize-1))
+	y3 := centerY - (float64(row-sizeY/2)-0.25)/(magnification*float64(minsize-1))
 	r3, g3, b3 := getColor(mandel(x3, y3))
 
-	x4 := centerX + (float64(col-sizeX/2)+0.5)/(magnification*float64(minsize-1))
-	y4 := centerY - (float64(row-sizeY/2)-0.5)/(magnification*float64(minsize-1))
+	x4 := centerX + (float64(col-sizeX/2)+0.25)/(magnification*float64(minsize-1))
+	y4 := centerY - (float64(row-sizeY/2)-0.25)/(magnification*float64(minsize-1))
 	r4, g4, b4 := getColor(mandel(x4, y4))
 
 	return color.NRGBA{uint8((r1 + r2 + r3 + r4) / 4), uint8((g1 + g2 + g3 + g4) / 4), uint8((b1 + b2 + b3 + b4) / 4), 255}
