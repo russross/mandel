@@ -49,7 +49,7 @@ func main() {
 	flag.Float64Var(&magnification, "m", 0.4, "Magnification level")
 	flag.IntVar(&antialias, "a", 2, "Anti-aliasing level for smoother image (1 is off)")
 	flag.BoolVar(&continuous, "c", false, "Enable continuous color gradient")
-	flag.StringVar(&filename, "file", "mandelbrot.png", "Output file name")
+	flag.StringVar(&filename, "o", "mandelbrot.png", "Output file name")
 	flag.StringVar(&palettefile, "palette", "", "Palette JSON file (leave blank for default)")
 	flag.Parse()
 
