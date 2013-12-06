@@ -15,10 +15,11 @@ import (
 )
 
 var (
-	iterations int
-	antialias  bool
-	continuous bool
-	palette    []color.NRGBA
+	iterations    int
+	antialias     int
+	continuous    bool
+	palette       []color.NRGBA
+	subpixOffsets []float64
 )
 
 type pixel struct {
@@ -45,12 +46,20 @@ func main() {
 	flag.IntVar(&iterations, "i", 1000, "Maximum iterations per point")
 	flag.Float64Var(&centerX, "x", -0.75, "Center point of the image, real part")
 	flag.Float64Var(&centerY, "y", 0.0, "Center point of the image, imaginary part")
-	flag.Float64Var(&magnification, "mag", 0.4, "Magnification level")
-	flag.BoolVar(&antialias, "a", true, "Enable anti-aliasing for smoother image")
+	flag.Float64Var(&magnification, "m", 0.4, "Magnification level")
+	flag.IntVar(&antialias, "a", 2, "Anti-aliasing level for smoother image (1 is off)")
 	flag.BoolVar(&continuous, "c", false, "Enable continuous color gradient")
 	flag.StringVar(&filename, "file", "mandelbrot.png", "Output file name")
-	flag.StringVar(&palettefile, "palette", "palette.json", "Palette JSON file")
+	flag.StringVar(&palettefile, "palette", "", "Palette JSON file (leave blank for default)")
 	flag.Parse()
+
+	if antialias < 1 {
+		log.Fatalf("Anti-aliasing level must be 1 or higher")
+	}
+	subpixOffsets = make([]float64, antialias)
+	for i := 0; i < antialias; i++ {
+		subpixOffsets[i] = (0.5+float64(i))/float64(antialias) - 0.5
+	}
 
 	loadPalette(palettefile)
 
@@ -113,30 +122,19 @@ func calcPixel(col, row, sizeX, sizeY int, centerX, centerY, magnification float
 		minsize = sizeY
 	}
 
-	if !antialias {
-		x := centerX + float64(col-sizeX/2)/(magnification*float64(minsize-1))
-		y := centerY - float64(row-sizeY/2)/(magnification*float64(minsize-1))
-		r, g, b := getColor(mandel(x, y))
-		return color.NRGBA{uint8(r), uint8(g), uint8(b), 255}
+	// loop over subpixels
+	r, g, b := 0, 0, 0
+	for _, yoffset := range subpixOffsets {
+		for _, xoffset := range subpixOffsets {
+			x := centerX + (float64(col-sizeX/2)+xoffset)/(magnification*float64(minsize-1))
+			y := centerY - (float64(row-sizeY/2)-yoffset)/(magnification*float64(minsize-1))
+			rs, gs, bs := getColor(mandel(x, y))
+			r, g, b = r+rs, g+gs, b+bs
+		}
 	}
 
-	x1 := centerX + (float64(col-sizeX/2)-0.25)/(magnification*float64(minsize-1))
-	y1 := centerY - (float64(row-sizeY/2)+0.25)/(magnification*float64(minsize-1))
-	r1, g1, b1 := getColor(mandel(x1, y1))
-
-	x2 := centerX + (float64(col-sizeX/2)+0.25)/(magnification*float64(minsize-1))
-	y2 := centerY - (float64(row-sizeY/2)+0.25)/(magnification*float64(minsize-1))
-	r2, g2, b2 := getColor(mandel(x2, y2))
-
-	x3 := centerX + (float64(col-sizeX/2)-0.25)/(magnification*float64(minsize-1))
-	y3 := centerY - (float64(row-sizeY/2)-0.25)/(magnification*float64(minsize-1))
-	r3, g3, b3 := getColor(mandel(x3, y3))
-
-	x4 := centerX + (float64(col-sizeX/2)+0.25)/(magnification*float64(minsize-1))
-	y4 := centerY - (float64(row-sizeY/2)-0.25)/(magnification*float64(minsize-1))
-	r4, g4, b4 := getColor(mandel(x4, y4))
-
-	return color.NRGBA{uint8((r1 + r2 + r3 + r4) / 4), uint8((g1 + g2 + g3 + g4) / 4), uint8((b1 + b2 + b3 + b4) / 4), 255}
+	aa := antialias * antialias
+	return color.NRGBA{uint8(r / aa), uint8(g / aa), uint8(b / aa), 255}
 }
 
 func getColor(iters float64) (r, g, b int) {
@@ -188,15 +186,19 @@ func mandel(x, y float64) float64 {
 
 func loadPalette(filename string) {
 	var colors [][]uint8
-	raw, err := ioutil.ReadFile(filename)
-	if err != nil {
-		log.Fatalf("Error reading palette file %s: %v", filename, err)
-	}
-	if err = json.Unmarshal(raw, &colors); err != nil {
-		log.Fatalf("Error parsing palette JSON data: %v", err)
-	}
-	if len(colors) < 1 {
-		log.Fatalf("Palette must have at least color")
+	if filename == "" {
+		colors = defaultColors
+	} else {
+		raw, err := ioutil.ReadFile(filename)
+		if err != nil {
+			log.Fatalf("Error reading palette file %s: %v", filename, err)
+		}
+		if err = json.Unmarshal(raw, &colors); err != nil {
+			log.Fatalf("Error parsing palette JSON data: %v", err)
+		}
+		if len(colors) < 1 {
+			log.Fatalf("Palette must have at least color")
+		}
 	}
 	for _, c := range colors {
 		if len(c) != 4 {
