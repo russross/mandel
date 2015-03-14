@@ -1,101 +1,87 @@
-package main
+package mandel
 
 import (
-	"encoding/json"
-	"flag"
 	"fmt"
 	"image"
 	"image/color"
-	"image/png"
-	"io/ioutil"
-	"log"
 	"math"
-	"os"
 	"runtime"
 )
 
-var (
-	iterations    int
-	antialias     int
-	continuous    bool
-	palette       []color.NRGBA
+type Parameters struct {
+	CenterX       float64       `json:"x"`
+	CenterY       float64       `json:"y"`
+	Magnification float64       `json:"m"`
+	MaxIterations int           `json:"i"`
+	SizeX         int           `json:"px"`
+	SizeY         int           `json:"py"`
+	AntiAlias     int           `json:"a"`
+	Continuous    bool          `json:"c"`
+	Palette       []color.NRGBA `json:"palette"`
+	InsideColor   color.NRGBA   `json:"inside"`
 	subpixOffsets []float64
-)
+}
+
+func (p *Parameters) Init() error {
+	// compute subpixel offsets
+	if p.AntiAlias < 1 {
+		return fmt.Errorf("anti-aliasing level must be 1 or higher")
+	}
+	p.subpixOffsets = make([]float64, p.AntiAlias)
+	for i := 0; i < p.AntiAlias; i++ {
+		p.subpixOffsets[i] = (0.5+float64(i))/float64(p.AntiAlias) - 0.5
+	}
+
+	if len(p.Palette) < 1 {
+		return fmt.Errorf("palette must not be empty")
+	}
+
+	return nil
+}
 
 type pixel struct {
 	x, y  int
 	color color.Color
 }
 
-func main() {
-	// use multiple CPUs if available
-	fanout := runtime.NumCPU()
-	runtime.GOMAXPROCS(fanout)
-
-	// parse options
-	var (
-		centerX, centerY float64
-		magnification    float64
-		sizeX, sizeY     int
-		filename         string
-		palettefile      string
-	)
-
-	flag.IntVar(&sizeX, "px", 1024, "Horizontal size of the image in pixels")
-	flag.IntVar(&sizeY, "py", 768, "Vertical size of the image in pixels")
-	flag.IntVar(&iterations, "i", 1000, "Maximum iterations per point")
-	flag.Float64Var(&centerX, "x", -0.75, "Center point of the image, real part")
-	flag.Float64Var(&centerY, "y", 0.0, "Center point of the image, imaginary part")
-	flag.Float64Var(&magnification, "m", 0.4, "Magnification level")
-	flag.IntVar(&antialias, "a", 2, "Anti-aliasing level for smoother image (1 is off)")
-	flag.BoolVar(&continuous, "c", false, "Enable continuous color gradient")
-	flag.StringVar(&filename, "o", "mandelbrot.png", "Output file name")
-	flag.StringVar(&palettefile, "palette", "", "Palette JSON file (leave blank for default)")
-	flag.Parse()
-
-	if antialias < 1 {
-		log.Fatalf("Anti-aliasing level must be 1 or higher")
+func (p *Parameters) Generate() *image.NRGBA {
+	if len(p.subpixOffsets) != p.AntiAlias {
+		panic("Generate cannot be called before Init")
 	}
-	subpixOffsets = make([]float64, antialias)
-	for i := 0; i < antialias; i++ {
-		subpixOffsets[i] = (0.5+float64(i))/float64(antialias) - 0.5
-	}
-
-	loadPalette(palettefile)
 
 	// spin up row workers
-	ch := make(chan int)
-	done := make(chan bool)
-	pixelch := make(chan pixel, sizeX)
+	fanout := runtime.GOMAXPROCS(-1)
+	rows := make(chan int)
+	done := make(chan struct{})
+	pixelch := make(chan pixel, p.SizeX)
 	for i := 0; i < fanout; i++ {
 		go func() {
-			for row := range ch {
-				for col := 0; col < sizeX; col++ {
-					color := calcPixel(col, row, sizeX, sizeY, centerX, centerY, magnification)
+			for row := range rows {
+				for col := 0; col < p.SizeX; col++ {
+					color := p.CalcPixel(col, row)
 					pixelch <- pixel{col, row, color}
 				}
 			}
-			done <- true
+			done <- struct{}{}
 		}()
 	}
 
 	// allocate the image
-	canvas := image.NewNRGBA(image.Rect(0, 0, sizeX, sizeY))
+	canvas := image.NewNRGBA(image.Rect(0, 0, p.SizeX, p.SizeY))
 
 	// set all pixels using a single worker
 	go func() {
-		for p := range pixelch {
-			canvas.Set(p.x, p.y, p.color)
+		for pix := range pixelch {
+			canvas.Set(pix.x, pix.y, pix.color)
 		}
-		done <- true
+		done <- struct{}{}
 	}()
 
 	// feed the rows to the workers
-	for row := 0; row < sizeY; row++ {
-		fmt.Printf("\r%.2f%%", float64(100*row)/float64(sizeY))
-		ch <- row
+	for row := 0; row < p.SizeY; row++ {
+		rows <- row
 	}
-	close(ch)
+	close(rows)
 
 	// wait for workers to finish
 	for i := 0; i < fanout; i++ {
@@ -103,46 +89,42 @@ func main() {
 	}
 	close(pixelch)
 	<-done
-	fmt.Printf("\rfinished\n")
 
-	// save the image
-	fp, err := os.Create(filename)
-	if err != nil {
-		log.Fatalf("Error creating file %s: %v", filename, err)
-	}
-	defer fp.Close()
-	if err = png.Encode(fp, canvas); err != nil {
-		log.Fatalf("Error encoding image: %v", err)
-	}
+	return canvas
 }
 
-func calcPixel(col, row, sizeX, sizeY int, centerX, centerY, magnification float64) color.Color {
-	minsize := sizeX
-	if sizeY < sizeX {
-		minsize = sizeY
+func (p *Parameters) CalcPixel(col, row int) color.Color {
+	if len(p.subpixOffsets) != p.AntiAlias {
+		panic("CalcPixel cannot be called before Init")
+	}
+
+	minsize := p.SizeX
+	if p.SizeY < p.SizeX {
+		minsize = p.SizeY
 	}
 
 	// loop over subpixels
 	r, g, b := 0, 0, 0
-	for _, yoffset := range subpixOffsets {
-		for _, xoffset := range subpixOffsets {
-			x := centerX + (float64(col-sizeX/2)+xoffset)/(magnification*float64(minsize-1))
-			y := centerY - (float64(row-sizeY/2)-yoffset)/(magnification*float64(minsize-1))
-			rs, gs, bs := getColor(mandel(x, y))
+	for _, yoffset := range p.subpixOffsets {
+		for _, xoffset := range p.subpixOffsets {
+			x := p.CenterX + (float64(col-p.SizeX/2)+xoffset)/(p.Magnification*float64(minsize-1))
+			y := p.CenterY - (float64(row-p.SizeY/2)-yoffset)/(p.Magnification*float64(minsize-1))
+			rs, gs, bs := p.getColor(mandel(p.MaxIterations, x, y, p.Continuous))
 			r, g, b = r+rs, g+gs, b+bs
 		}
 	}
 
-	aa := antialias * antialias
+	aa := p.AntiAlias * p.AntiAlias
 	return color.NRGBA{uint8(r / aa), uint8(g / aa), uint8(b / aa), 255}
 }
 
-func getColor(iters float64) (r, g, b int) {
+func (p *Parameters) getColor(iters float64) (r, g, b int) {
 	if iters == 0.0 {
-		return
+		c := p.InsideColor
+		return int(c.R), int(c.G), int(c.B)
 	}
-	if !continuous {
-		c := palette[int(iters)%len(palette)]
+	if !p.Continuous {
+		c := p.Palette[int(iters)%len(p.Palette)]
 		return int(c.R), int(c.G), int(c.B)
 	}
 
@@ -152,21 +134,21 @@ func getColor(iters float64) (r, g, b int) {
 		aa, bb = 1, 2
 	}
 	weight := iters - math.Floor(iters)
-	c1 := palette[(aa-1)%len(palette)]
-	c2 := palette[(bb-1)%len(palette)]
+	c1 := p.Palette[(aa-1)%len(p.Palette)]
+	c2 := p.Palette[(bb-1)%len(p.Palette)]
 	r = int(float64(c1.R)*(1.0-weight) + float64(c2.R)*weight)
 	g = int(float64(c1.G)*(1.0-weight) + float64(c2.G)*weight)
 	b = int(float64(c1.B)*(1.0-weight) + float64(c2.B)*weight)
-	return
+	return r, g, b
 }
 
-func mandel(x, y float64) float64 {
+func mandel(maxIters int, x, y float64, continuous bool) float64 {
 	bailout := float64(4.0)
 	if continuous {
 		bailout = 2 << 16
 	}
 	a, b := x, y
-	for iters := 1; iters <= iterations; iters++ {
+	for iters := 1; iters <= maxIters; iters++ {
 		a2 := a * a
 		b2 := b * b
 		if a2+b2 >= bailout {
@@ -182,28 +164,4 @@ func mandel(x, y float64) float64 {
 		b = ab + ab + y
 	}
 	return 0.0
-}
-
-func loadPalette(filename string) {
-	var colors [][]uint8
-	if filename == "" {
-		colors = defaultColors
-	} else {
-		raw, err := ioutil.ReadFile(filename)
-		if err != nil {
-			log.Fatalf("Error reading palette file %s: %v", filename, err)
-		}
-		if err = json.Unmarshal(raw, &colors); err != nil {
-			log.Fatalf("Error parsing palette JSON data: %v", err)
-		}
-		if len(colors) < 1 {
-			log.Fatalf("Palette must have at least color")
-		}
-	}
-	for _, c := range colors {
-		if len(c) != 4 {
-			log.Fatalf("Error in palette file: each color must have exactly 4 elements: red, green, blue, and alpha: found %v", c)
-		}
-		palette = append(palette, color.NRGBA{c[0], c[1], c[2], c[3]})
-	}
 }
